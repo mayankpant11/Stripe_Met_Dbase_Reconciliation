@@ -2,55 +2,57 @@
 
 ## Project overview
 
-This repository is a small Python/FastAPI prototype for reconciling Stripe invoice data with Metronome contract data. It reads local JSON fixtures, ranks short runbook documents with a basic word-overlap cosine score, and returns a JSON explanation from the `/chat` endpoint. It does not call live Stripe or Metronome APIs and should not be described as a production integration.
+`Stripe_Met_Dbase_Reconciliation` is a local-data FastAPI demo for explaining possible mismatches between Stripe-style invoices and Metronome-style usage contracts. It does not call live provider APIs. Retrieval is a small word-overlap cosine calculation over local runbook text, and answers are deterministic templates. Do not describe the project as a production integration or as using an LLM, embeddings, or live Stripe/Metronome APIs.
 
 ## Repository map
 
-- `app.py` — FastAPI application, `/` health route, `/chat` orchestration, document retrieval, response construction, idempotency cache, and best-effort JSONL logging.
-- `tools.py` — JSON fixture loading and lookup helpers for invoices, contracts, and documentation.
-- `eval_harness.py` — small golden-query retrieval/citation evaluation; run directly with Python.
-- `stripe-invoices.json` — invoice fixtures (hyphenated filename is supported by `tools.load_json`).
-- `metronome-contracts.json` — contract fixtures (hyphenated filename is supported by `tools.load_json`).
-- `docs.json` — runbook documents used by retrieval.
-- `README.md` — setup, API usage, examples, and project notes.
+- `app.py` — FastAPI endpoints, query handling, retrieval, response templates, 60-second in-memory idempotency cache, and best-effort JSONL logging.
+- `tools.py` — JSON file loading and invoice, contract, and documentation lookup helpers.
+- `stripe-invoices.json` — 58 sample invoice records; the hyphenated filename is intentional and supported by the loader.
+- `metronome-contracts.json` — 57 sample contract records.
+- `docs.json` — 6 runbook documents. Each document has `id`, `title`, `content`, and `keywords` fields.
+- `eval_harness.py` — Four-case retrieval/citation evaluation; it does not exercise the HTTP endpoint.
+- `README.md` — Setup and usage instructions.
 
-## Development and run commands
+Invoice records link to contracts through `metronome_contract_id`. Keep IDs and customer references consistent when editing sample records. Preserve fields read by the response templates, including invoice `amount`, `currency`, `subsidiary_currency`, and `finalized_at`, plus contract `rated_usage_amount`, `rated_at`, `true_up_rule`, and `commit_remaining` where applicable.
 
-Install the runtime packages if they are not already available:
+## Local development
+
+Run from the repository root. Create a virtual environment and install the runtime dependencies with:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install fastapi uvicorn
 ```
 
-Start the API from the repository root:
+Start the API with:
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Run the retrieval evaluation:
+Run the retrieval evaluation with:
 
 ```bash
 python eval_harness.py
 ```
 
-The API provides `GET /` as a simple health check and `POST /chat` with a JSON body such as `{"query":"Why is invoice in_123 amount 0?"}`. FastAPI's interactive API page is available at `/docs` while the server is running.
+The API has `GET /` for health and `POST /chat` for chat. Keep responses JSON-compatible for FastAPI Swagger UI at `/docs`.
 
-## Code conventions and boundaries
+## Implementation guidance
 
-- Keep fixture/data lookup in `tools.py`; keep request orchestration and response assembly in `app.py`.
-- Resolve data files relative to `pathlib.Path(__file__).parent`, not the process working directory.
-- Preserve the existing hyphen/underscore filename compatibility in `load_json` when changing fixture loading.
-- Fixture records are plain JSON objects. Keep invoice and contract identifiers consistent across the fixture files and preserve the fields used by the response logic (`amount`, `finalized_at`, `currency`, `subsidiary_currency`, `metronome_contract_id`, `rated_usage_amount`, `rated_at`, `true_up_rule`, and `commit_remaining`).
-- Retrieved documents need `id`, `title`, and `content`; answer branches in `app.py` currently use the document IDs `doc_metronome_delay`, `doc_commit_trueup`, and `doc_currency_mismatch`.
-- Keep `/chat` responses JSON-compatible. The endpoint is used through FastAPI Swagger UI.
-- Keep observability logging best-effort so a log-file write failure does not fail a chat request. The log is appended to `observability.jsonl` at runtime and is not a source fixture.
-- The idempotency cache is in-memory and process-local with a 60-second lifetime. Do not represent it as durable or cross-worker idempotency.
-- This code uses hand-written retrieval and deterministic response templates. Avoid implying it uses an LLM, embeddings, live provider APIs, or a general-purpose semantic search system unless those capabilities are implemented.
+- Keep data loading and lookup in `tools.py`; keep request orchestration and response generation in `app.py`.
+- Resolve fixture paths relative to `pathlib.Path(__file__).parent`, not the current working directory.
+- Preserve hyphen/underscore filename compatibility in `load_json`.
+- When checking invoice lookup errors, compare against the specific not-found message, such as `Invoice {invoice_id} not found`. Do not check only whether the invoice dictionary has an `error` key: the valid `in_123` fixture uses that key to describe its zero-amount condition.
+- The runbook IDs with dedicated response branches are `doc_metronome_delay`, `doc_commit_trueup`, and `doc_currency_mismatch`. Other matched documents currently receive a generic match response. Keep documentation and README claims aligned with that behavior.
+- Keep logging best-effort so a failure to append to `observability.jsonl` does not fail a request. Do not treat that runtime log as fixture data.
+- The idempotency cache is process-local and in-memory; it is not durable or shared between workers.
 
-## Evaluation and changes
+## Evaluation and fixture changes
 
-- When changing retrieval scoring, thresholds, document text, or the answer/citation mapping, update `GOLDEN_SET` in `eval_harness.py` when expected behavior changes.
-- The eval harness checks top-document selection and whether unknown cases remain indeterminable. It does not exercise the FastAPI route, persistence, concurrency, or external integrations.
-- Do not add dependencies or introduce a test framework without a concrete need; this repository currently has no dependency manifest or dedicated test suite.
-- Do not commit runtime logs, local environment files, credentials, or generated artifacts as fixtures.
+- If retrieval behavior, thresholds, runbook content, or citation mappings change, update `GOLDEN_SET` in `eval_harness.py` when expected outcomes change.
+- The harness checks four retrieval cases only. It does not verify the API route, logging, idempotency, concurrency, or every sample record.
+- Keep JSON valid and use unique invoice, contract, and document IDs.
+- Do not add credentials, environment files, local editor metadata, or runtime logs as fixture data.
