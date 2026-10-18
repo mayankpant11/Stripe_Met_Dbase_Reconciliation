@@ -43,9 +43,8 @@ def _build_answer(invoice_id: str, invoice: dict, contract: dict, docs: list) ->
             f"Invoice {invoice_id} is $0 because Metronome rated usage "
             f"${contract.get('rated_usage_amount')} at {contract.get('rated_at')} "
             f"which is 95 mins AFTER Stripe finalized at {invoice.get('finalized_at')} "
-            f"[doc_metronome_delay]. The usage will be included in next invoice "
-            f"{invoice.get('id', 'in_124')} amount "
-            f"${contract.get('rated_usage_amount')}."
+            f"[doc_metronome_delay]. The usage will be included on the next invoice "
+            f"for this contract, for ${contract.get('rated_usage_amount')}."
         )
     if doc["id"] == "doc_commit_trueup":
         return (
